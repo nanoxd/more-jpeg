@@ -1,10 +1,37 @@
 use async_std::fs::read_to_string;
 use liquid::{Object, Template};
+use serde::Serialize;
 use std::{collections::HashMap, error::Error, str::FromStr};
 use tide::{http::Mime, Request, Response, StatusCode};
 
-pub type TemplateMap = HashMap<String, Template>;
 mod mimes;
+
+pub type TemplateMap = HashMap<String, Template>;
+struct State {
+    templates: TemplateMap,
+}
+
+impl State {
+    fn new(templates: TemplateMap) -> Self {
+        State { templates }
+    }
+}
+
+trait ForTide {
+    fn for_tide(self) -> Result<tide::Response, tide::Error>;
+}
+
+impl ForTide for Result<tide::Response, Box<dyn Error>> {
+    fn for_tide(self) -> Result<tide::Response, tide::Error> {
+        self.map_err(|e| {
+            log::error!("While serving template: {}", e);
+            tide::Error::from_str(
+                StatusCode::InternalServerError,
+                "Something went wrong, sorry!",
+            )
+        })
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 enum TemplateError {
@@ -13,6 +40,11 @@ enum TemplateError {
 
     #[error("template not found: {0}")]
     TemplateNotFound(String),
+}
+
+#[derive(Serialize)]
+struct UploadResponse<'a> {
+    src: &'a str,
 }
 
 async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>> {
@@ -47,32 +79,6 @@ async fn serve_template(
     res.set_content_type(mime);
     res.set_body(markup);
     Ok(res)
-}
-
-struct State {
-    templates: TemplateMap,
-}
-
-impl State {
-    fn new(templates: TemplateMap) -> Self {
-        State { templates }
-    }
-}
-
-trait ForTide {
-    fn for_tide(self) -> Result<tide::Response, tide::Error>;
-}
-
-impl ForTide for Result<tide::Response, Box<dyn Error>> {
-    fn for_tide(self) -> Result<tide::Response, tide::Error> {
-        self.map_err(|e| {
-            log::error!("While serving template: {}", e);
-            tide::Error::from_str(
-                StatusCode::InternalServerError,
-                "Something went wrong, sorry!",
-            )
-        })
-    }
 }
 
 #[async_std::main]
@@ -111,6 +117,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await
             .for_tide()
     });
+
+    app.at("/upload")
+        .post(|mut req: Request<State>| async move {
+            let body = req.body_bytes().await?;
+            let payload = base64::encode(body);
+            let src = format!("data:image/jpeg;base64,{}", payload);
+
+            let mut res = Response::new(StatusCode::Ok);
+            res.set_content_type(mimes::json());
+            res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
+            Ok(res)
+        });
 
     app.listen("localhost:3000").await?;
     Ok(())
