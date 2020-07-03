@@ -4,6 +4,7 @@ use std::{collections::HashMap, error::Error, str::FromStr};
 use tide::{http::Mime, Request, Response, StatusCode};
 
 pub type TemplateMap = HashMap<String, Template>;
+mod mimes;
 
 #[derive(Debug, thiserror::Error)]
 enum TemplateError {
@@ -32,14 +33,18 @@ async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>
     Ok(map)
 }
 
-async fn serve_template(templates: &TemplateMap, name: &str) -> Result<Response, Box<dyn Error>> {
+async fn serve_template(
+    templates: &TemplateMap,
+    name: &str,
+    mime: Mime,
+) -> Result<Response, Box<dyn Error>> {
     let template = templates
         .get(name)
         .ok_or_else(|| TemplateError::TemplateNotFound(name.to_string()))?;
     let globals: Object = Default::default();
     let markup = template.render(&globals).unwrap();
     let mut res = Response::new(StatusCode::Ok);
-    res.set_content_type(Mime::from_str("text/html; charset=utf-8").unwrap());
+    res.set_content_type(mime);
     res.set_body(markup);
     Ok(res)
 }
@@ -61,7 +66,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     pretty_env_logger::init();
 
-    let templates = compile_templates(&["./templates/index.html.liquid"]).await?;
+    let templates = compile_templates(&[
+        "./templates/index.html.liquid",
+        "./templates/style.css.liquid",
+        "./templates/main.js.liquid",
+    ])
+    .await?;
     log::info!("{} templates compiled", templates.len());
 
     let mut app = tide::with_state(State::new(templates));
@@ -69,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     app.at("/").get(|req: Request<State>| async move {
         log::info!("Serving /");
         let name = "index.html";
-        serve_template(&req.state().templates, name)
+        serve_template(&req.state().templates, name, mimes::html())
             .await
             .map_err(|e| {
                 log::error!("While serving template: {}", e);
