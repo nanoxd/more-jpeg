@@ -1,10 +1,10 @@
-use async_std::{fs::read_to_string, sync::RwLock};
 use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use liquid::{Object, Template};
 use rand::Rng;
 use serde::Serialize;
 use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
+use tokio::{fs::read_to_string, sync::RwLock};
 use ulid::Ulid;
 
 mod mimes;
@@ -137,7 +137,7 @@ async fn serve_template(
     Ok(res)
 }
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "info");
