@@ -1244,6 +1244,7 @@ name = "more-jpeg"
 version = "0.1.0"
 dependencies = [
  "base64 0.12.3",
+ "http",
  "image",
  "liquid",
  "log 0.4.8",
