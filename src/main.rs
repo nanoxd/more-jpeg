@@ -167,35 +167,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = State::new(templates);
     let state = Arc::new(state);
 
-    let index = {
-        let state = state.clone();
-        warp::path::end()
-            .and(warp::filters::method::get())
-            .map(move || {
-                let template = state.templates.get("index.html").unwrap();
-                let globals: Object = Default::default();
-                let markup = template.render(&globals).unwrap();
-
-                http::Response::builder()
-                    .content_type(mimes::html())
-                    .body(markup)
-            })
+    let with_state = {
+        let filter = warp::filters::any::any().map(move || state.clone());
+        move || filter.clone()
     };
 
-    let style = {
-        let state = state.clone();
-        warp::path!("style.css")
-            .and(warp::filters::method::get())
-            .map(move || {
-                let template = state.templates.get("style.css").unwrap();
-                let globals: Object = Default::default();
-                let markup = template.render(&globals).unwrap();
+    let index = warp::filters::method::get()
+        .and(warp::path::end())
+        .and(with_state())
+        .map(|state: Arc<State>| {
+            let template = state.templates.get("index.html").unwrap();
+            let globals: Object = Default::default();
+            let markup = template.render(&globals).unwrap();
 
-                http::Response::builder()
-                    .content_type(mimes::css())
-                    .body(markup)
-            })
-    };
+            http::Response::builder()
+                .content_type(mimes::html())
+                .body(markup)
+        });
+
+    let style = warp::filters::method::get()
+        .and(warp::path!("style.css"))
+        .and(with_state())
+        .map(|state: Arc<State>| {
+            let template = state.templates.get("style.css").unwrap();
+            let globals: Object = Default::default();
+            let markup = template.render(&globals).unwrap();
+
+            http::Response::builder()
+                .content_type(mimes::css())
+                .body(markup)
+        });
 
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
     warp::serve(index.or(style)).run(addr).await;
