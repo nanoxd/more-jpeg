@@ -99,6 +99,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await
             .for_tide()
     });
+
+    app.at("/style.css").get(|req: Request<State>| async move {
+        serve_template(&req.state().templates, "style.css", mimes::css())
+            .await
+            .for_tide()
+    });
+
+    app.at("/main.js").get(|req: Request<State>| async move {
+        serve_template(&req.state().templates, "main.js", mimes::js())
+            .await
+            .for_tide()
     });
 
     app.listen("localhost:3000").await?;
