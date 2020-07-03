@@ -154,7 +154,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     log::info!("{} templates compiled", templates.len());
 
     let state = State::new(templates);
-    let index = warp::path::end().map(|| "Hello from Warp!");
+    let index = warp::path::end()
+        .and(warp::filters::method::get())
+        .map(|| "Hello from Warp!");
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
     warp::serve(index).run(addr).await;
     Ok(())
