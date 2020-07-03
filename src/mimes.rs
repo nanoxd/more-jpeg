@@ -16,3 +16,7 @@ pub(crate) fn js() -> Mime {
 pub(crate) fn json() -> Mime {
     mime::JSON
 }
+
+pub(crate) fn jpeg() -> Mime {
+    mime::JPEG
+}

@@ -1,19 +1,25 @@
-use async_std::fs::read_to_string;
+use async_std::{fs::read_to_string, sync::RwLock};
 use liquid::{Object, Template};
 use serde::Serialize;
 use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
+use ulid::Ulid;
 
 mod mimes;
 
 pub type TemplateMap = HashMap<String, Template>;
+
 struct State {
     templates: TemplateMap,
+    images: RwLock<HashMap<Ulid, Image>>,
 }
 
 impl State {
     fn new(templates: TemplateMap) -> Self {
-        State { templates }
+        State {
+            templates,
+            images: Default::default(),
+        }
     }
 }
 
@@ -40,11 +46,19 @@ enum TemplateError {
 
     #[error("template not found: {0}")]
     TemplateNotFound(String),
+
+    #[error("Invalid ID for image")]
+    InvalidID,
 }
 
 #[derive(Serialize)]
 struct UploadResponse<'a> {
     src: &'a str,
+}
+
+struct Image {
+    mime: Mime,
+    contents: Vec<u8>,
 }
 
 async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>> {
@@ -96,7 +110,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
     log::info!("{} templates compiled", templates.len());
 
-    let mut app = tide::with_state(State::new(templates));
+    let state = State::new(templates);
+    let mut app = tide::with_state(state);
 
     app.at("/").get(|req: Request<State>| async move {
         log::info!("Serving /");
@@ -123,11 +138,24 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let body = req.body_bytes().await?;
             let img = image::load_from_memory(&body[..])?;
             let mut output: Vec<u8> = Default::default();
-            let mut encoder = image::jpeg::JPEGEncoder::new_with_quality(&mut output, 90);
+
+            use image::jpeg::JPEGEncoder;
+
+            let mut encoder = JPEGEncoder::new_with_quality(&mut output, 90);
             encoder.encode_image(&img)?;
 
-            let payload = base64::encode(output);
-            let src = format!("data:image/jpeg;base64,{}", payload);
+            let id = Ulid::new();
+            let src = format!("/images/{}.jpg", id);
+
+            let img = Image {
+                mime: mimes::jpeg(),
+                contents: output,
+            };
+
+            {
+                let mut images = req.state().images.write().await;
+                images.insert(id, img);
+            }
 
             let mut res = Response::new(StatusCode::Ok);
             res.set_content_type(mimes::json());
@@ -135,6 +163,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Ok(res)
         });
 
+    app.at("/images/:name")
+        .get(|req: Request<State>| async { serve_image(req).await.for_tide() });
+
     app.listen("localhost:3000").await?;
     Ok(())
+}
+
+async fn serve_image(req: Request<State>) -> Result<Response, Box<dyn Error>> {
+    let id: Ulid = req
+        .param("name")
+        .map(|x: String| x.trim_end_matches(".jpg").to_string())
+        .map(|x: String| Ulid::from_string(&x))?
+        .map_err(|_| TemplateError::InvalidID)?;
+
+
+    let images = req.state().images.read().await;
+    if let Some(img) = images.get(&id) {
+        let mut res = Response::new(StatusCode::Ok);
+        res.set_content_type(img.mime.clone());
+        res.set_body(&img.contents[..]);
+        Ok(res)
+    } else {
+        Ok(Response::new(StatusCode::NotFound))
+    }
 }
