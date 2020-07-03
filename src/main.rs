@@ -2,7 +2,7 @@ use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageV
 use liquid::{Object, Template};
 use rand::Rng;
 use serde::Serialize;
-use std::{collections::HashMap, error::Error, net::SocketAddr};
+use std::{collections::HashMap, error::Error, net::SocketAddr, sync::Arc};
 use tide::{http::Mime, Request, Response, StatusCode};
 use tokio::{fs::read_to_string, sync::RwLock};
 use ulid::Ulid;
@@ -161,16 +161,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "./templates/main.js.liquid",
     ])
     .await?;
+
     log::info!("{} templates compiled", templates.len());
 
     let state = State::new(templates);
-    let index = warp::path::end().and(warp::filters::method::get()).map(|| {
-        http::Response::builder()
-            .content_type(mimes::html())
-            .body("Why <strong>hello</strong> there 👋")
-    });
+    let state = Arc::new(state);
+
+    let index = {
+        let state = state.clone();
+        warp::path::end()
+            .and(warp::filters::method::get())
+            .map(move || {
+                let template = state.templates.get("index.html").unwrap();
+                let globals: Object = Default::default();
+                let markup = template.render(&globals).unwrap();
+
+                http::Response::builder()
+                    .content_type(mimes::html())
+                    .body(markup)
+            })
+    };
+
+    let style = {
+        let state = state.clone();
+        warp::path!("style.css")
+            .and(warp::filters::method::get())
+            .map(move || {
+                let template = state.templates.get("style.css").unwrap();
+                let globals: Object = Default::default();
+                let markup = template.render(&globals).unwrap();
+
+                http::Response::builder()
+                    .content_type(mimes::css())
+                    .body(markup)
+            })
+    };
+
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
-    warp::serve(index).run(addr).await;
+    warp::serve(index.or(style)).run(addr).await;
     Ok(())
     // let mut app = tide::with_state(state);
 
