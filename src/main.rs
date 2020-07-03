@@ -71,6 +71,16 @@ trait BitCrush: Sized {
     fn bitcrush(self) -> Result<Self, Self::Error>;
 }
 
+trait MimeAware {
+    fn content_type(self, mime: Mime) -> Self;
+}
+
+impl MimeAware for http::response::Builder {
+    fn content_type(self, mime: Mime) -> Self {
+        self.header("content-type", mime.to_string())
+    }
+}
+
 impl BitCrush for DynamicImage {
     type Error = image::ImageError;
 
@@ -156,7 +166,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = State::new(templates);
     let index = warp::path::end().and(warp::filters::method::get()).map(|| {
         http::Response::builder()
-            .header("content-type", "text/html; charset=utf-8")
+            .content_type(mimes::html())
             .body("Why <strong>hello</strong> there 👋")
     });
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
