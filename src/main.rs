@@ -1,5 +1,7 @@
 use async_std::{fs::read_to_string, sync::RwLock};
+use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use liquid::{Object, Template};
+use rand::Rng;
 use serde::Serialize;
 use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
@@ -8,6 +10,7 @@ use ulid::Ulid;
 mod mimes;
 
 pub type TemplateMap = HashMap<String, Template>;
+pub const JPEG_QUALITY: u8 = 25;
 
 struct State {
     templates: TemplateMap,
@@ -59,6 +62,45 @@ struct UploadResponse<'a> {
 struct Image {
     mime: Mime,
     contents: Vec<u8>,
+}
+
+trait BitCrush: Sized {
+    type Error;
+
+    fn bitcrush(self) -> Result<Self, Self::Error>;
+}
+
+impl BitCrush for DynamicImage {
+    type Error = image::ImageError;
+
+    fn bitcrush(self) -> Result<Self, Self::Error> {
+        let mut current = self;
+        let (orig_w, orig_h) = current.dimensions();
+
+        let mut rng = rand::thread_rng();
+        let (temp_w, temp_h) = (
+            rng.gen_range(orig_w / 2, orig_w * 2),
+            rng.gen_range(orig_h / 2, orig_h * 2),
+        );
+
+        let mut out: Vec<u8> = Default::default();
+        for _ in 0..2 {
+            current = current
+                .resize_exact(temp_w, temp_h, FilterType::Nearest)
+                .rotate180()
+                .huerotate(180);
+            out.clear();
+            {
+                let mut encoder = JPEGEncoder::new_with_quality(&mut out, rng.gen_range(10, 30));
+                encoder.encode_image(&current)?;
+            }
+
+            current = image::load_from_memory_with_format(&out[..], image::ImageFormat::Jpeg)?
+                .resize_exact(orig_w, orig_h, FilterType::Nearest);
+        }
+
+        Ok(current)
+    }
 }
 
 async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>> {
@@ -136,10 +178,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     app.at("/upload")
         .post(|mut req: Request<State>| async move {
             let body = req.body_bytes().await?;
-            let img = image::load_from_memory(&body[..])?;
+            let img = image::load_from_memory(&body[..])?.bitcrush()?;
             let mut output: Vec<u8> = Default::default();
-
-            use image::jpeg::JPEGEncoder;
 
             let mut encoder = JPEGEncoder::new_with_quality(&mut output, 90);
             encoder.encode_image(&img)?;
@@ -176,7 +216,6 @@ async fn serve_image(req: Request<State>) -> Result<Response, Box<dyn Error>> {
         .map(|x: String| x.trim_end_matches(".jpg").to_string())
         .map(|x: String| Ulid::from_string(&x))?
         .map_err(|_| TemplateError::InvalidID)?;
-
 
     let images = req.state().images.read().await;
     if let Some(img) = images.get(&id) {
