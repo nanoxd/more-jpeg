@@ -59,6 +59,22 @@ impl State {
     }
 }
 
+trait ForTide {
+    fn for_tide(self) -> Result<tide::Response, tide::Error>;
+}
+
+impl ForTide for Result<tide::Response, Box<dyn Error>> {
+    fn for_tide(self) -> Result<tide::Response, tide::Error> {
+        self.map_err(|e| {
+            log::error!("While serving template: {}", e);
+            tide::Error::from_str(
+                StatusCode::InternalServerError,
+                "Something went wrong, sorry!",
+            )
+        })
+    }
+}
+
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     if std::env::var_os("RUST_LOG").is_none() {
@@ -81,13 +97,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let name = "index.html";
         serve_template(&req.state().templates, name, mimes::html())
             .await
-            .map_err(|e| {
-                log::error!("While serving template: {}", e);
-                tide::Error::from_str(
-                    StatusCode::InternalServerError,
-                    "Something went wrong, sorry!",
-                )
-            })
+            .for_tide()
+    });
     });
 
     app.listen("localhost:3000").await?;
