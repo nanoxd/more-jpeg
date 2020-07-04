@@ -1,5 +1,5 @@
+use http_types::{mime, Mime};
 use std::str::FromStr;
-use tide::http::{mime, Mime};
 
 pub(crate) fn html() -> Mime {
     Mime::from_str("text/html; charset=utf-8").unwrap()

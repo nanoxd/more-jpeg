@@ -7,7 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tide = "0.11.0"
 liquid = "0.20.1"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
@@ -23,6 +22,7 @@ tokio = { version = "0.2.21", features = ["sync", "rt-core", "rt-util", "rt-thre
 warp = "0.2.3"
 http = "0.2.1"
 bytes = "0.5.5"
+http-types = "2.2.1"
 
 [profile.dev.package."*"]
 opt-level = 2

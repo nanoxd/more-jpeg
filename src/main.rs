@@ -1,9 +1,9 @@
+use http_types::Mime;
 use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use liquid::{Object, Template};
 use rand::Rng;
 use serde::Serialize;
-use std::{collections::HashMap, convert::Infallible, error::Error, net::SocketAddr, sync::Arc};
-use tide::{http::Mime, Request, Response, StatusCode};
+use std::{collections::HashMap, error::Error, net::SocketAddr, sync::Arc};
 use tokio::{fs::read_to_string, sync::RwLock};
 use ulid::Ulid;
 use warp::Filter;
@@ -24,22 +24,6 @@ impl State {
             templates,
             images: Default::default(),
         }
-    }
-}
-
-trait ForTide {
-    fn for_tide(self) -> Result<tide::Response, tide::Error>;
-}
-
-impl ForTide for Result<tide::Response, Box<dyn Error>> {
-    fn for_tide(self) -> Result<tide::Response, tide::Error> {
-        self.map_err(|e| {
-            log::error!("While serving template: {}", e);
-            tide::Error::from_str(
-                StatusCode::InternalServerError,
-                "Something went wrong, sorry!",
-            )
-        })
     }
 }
 
