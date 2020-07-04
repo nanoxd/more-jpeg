@@ -230,8 +230,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .for_warp()
         });
 
+    let upload = warp::filters::method::post()
+        .and(warp::path("upload"))
+        .and(with_state())
+        .and(warp::filters::body::bytes())
+        .and_then(|state: Arc<State>, bytes: bytes::Bytes| async move {
+            handle_upload(&state, bytes).await.for_warp()
+        });
+
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
-    warp::serve(index.or(style).or(js)).run(addr).await;
+    warp::serve(index.or(style).or(js).or(upload))
+        .run(addr)
+        .await;
     Ok(())
     // let mut app = tide::with_state(state);
 
@@ -305,5 +315,32 @@ async fn serve_image(req: Request<State>) -> Result<Response, Box<dyn Error>> {
         Ok(res)
     } else {
         Ok(Response::new(StatusCode::NotFound))
+
+async fn handle_upload(
+    state: &State,
+    bytes: bytes::Bytes,
+) -> Result<impl warp::Reply, Box<dyn Error>> {
+    let img = image::load_from_memory(&bytes[..])?.bitcrush()?;
+    let mut output: Vec<u8> = Default::default();
+    let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
+    encoder.encode_image(&img)?;
+
+    let id = Ulid::new();
+    let src = format!("/images/{}", id);
+
+    let img = Image {
+        mime: mimes::jpeg(),
+        contents: output,
+    };
+
+    {
+        let mut images = state.images.write().await;
+        images.insert(id, img);
     }
+
+    let payload = serde_json::to_string(&UploadResponse { src: &src })?;
+    let res = http::Response::builder()
+        .content_type(mimes::json())
+        .body(payload);
+    Ok(res)
 }
