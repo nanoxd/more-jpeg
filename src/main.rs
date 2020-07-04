@@ -238,83 +238,43 @@ async fn main() -> Result<(), Box<dyn Error>> {
             handle_upload(&state, bytes).await.for_warp()
         });
 
+    let images = warp::filters::method::get()
+        .and(warp::path!("images" / String))
+        .and(with_state())
+        .and_then(|name: String, state: Arc<State>| async move {
+            serve_image(&state, &name).await.for_warp()
+        });
+
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
-    warp::serve(index.or(style).or(js).or(upload))
+    warp::serve(index.or(style).or(js).or(upload).or(images))
         .run(addr)
         .await;
     Ok(())
-    // let mut app = tide::with_state(state);
-
-    // app.at("/").get(|req: Request<State>| async move {
-    //     log::info!("Serving /");
-    //     let name = "index.html";
-    //     serve_template(&req.state().templates, name, mimes::html())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/style.css").get(|req: Request<State>| async move {
-    //     serve_template(&req.state().templates, "style.css", mimes::css())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/main.js").get(|req: Request<State>| async move {
-    //     serve_template(&req.state().templates, "main.js", mimes::js())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/upload")
-    //     .post(|mut req: Request<State>| async move {
-    //         let body = req.body_bytes().await?;
-    //         let img = image::load_from_memory(&body[..])?.bitcrush()?;
-    //         let mut output: Vec<u8> = Default::default();
-
-    //         let mut encoder = JPEGEncoder::new_with_quality(&mut output, 90);
-    //         encoder.encode_image(&img)?;
-
-    //         let id = Ulid::new();
-    //         let src = format!("/images/{}.jpg", id);
-
-    //         let img = Image {
-    //             mime: mimes::jpeg(),
-    //             contents: output,
-    //         };
-
-    //         {
-    //             let mut images = req.state().images.write().await;
-    //             images.insert(id, img);
-    //         }
-
-    //         let mut res = Response::new(StatusCode::Ok);
-    //         res.set_content_type(mimes::json());
-    //         res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
-    //         Ok(res)
-    //     });
-
-    // app.at("/images/:name")
-    //     .get(|req: Request<State>| async { serve_image(req).await.for_tide() });
-
-    // app.listen("localhost:3000").await?;
-    // Ok(())
 }
 
-async fn serve_image(req: Request<State>) -> Result<Response, Box<dyn Error>> {
-    let id: Ulid = req
-        .param("name")
-        .map(|x: String| x.trim_end_matches(".jpg").to_string())
-        .map(|x: String| Ulid::from_string(&x))?
+async fn serve_image(state: &State, name: &str) -> Result<impl warp::Reply, Box<dyn Error>> {
+    let id: Ulid = name
+        .trim_end_matches(".jpg")
+        .parse()
         .map_err(|_| TemplateError::InvalidID)?;
 
-    let images = req.state().images.read().await;
-    if let Some(img) = images.get(&id) {
-        let mut res = Response::new(StatusCode::Ok);
-        res.set_content_type(img.mime.clone());
-        res.set_body(&img.contents[..]);
-        Ok(res)
+    let images = state.images.read().await;
+    let res: Box<dyn warp::Reply> = if let Some(img) = images.get(&id) {
+        Box::new(
+            http::Response::builder()
+                .content_type(img.mime.clone())
+                .body(img.contents.clone()),
+        )
     } else {
-        Ok(Response::new(StatusCode::NotFound))
+        Box::new(
+            http::Response::builder()
+                .status(404)
+                .body("Image not found"),
+        )
+    };
+
+    Ok(res)
+}
 
 async fn handle_upload(
     state: &State,
